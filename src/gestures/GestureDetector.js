@@ -32,14 +32,12 @@ class GestureDetector {
 
         let fingersUp = 0;
 
-        // Thumb logic
-        const thumbTipX = landmarks[this.thumbTip].x;
-        const thumbIpX = landmarks[this.thumbIp].x;
-        // In Web, the camera is mirrored via CSS usually, but MediaPipe output varies.
-        // Assuming user's Left Hand is the Chord Selector
-        // We'll use a simple x distance check or y distance
-        // Left hand thumb tip should have a higher X value than the IP joint
-        if (thumbTipX > thumbIpX) {
+        // Thumb logic (Distance from thumb tip to pinky base is much more reliable than X-coordinates)
+        const thumbTip = landmarks[4];
+        const pinkyBase = landmarks[17];
+        const dist = Math.sqrt(Math.pow(thumbTip.x - pinkyBase.x, 2) + Math.pow(thumbTip.y - pinkyBase.y, 2));
+        
+        if (dist > 0.15) {
             fingersUp += 1;
         }
 

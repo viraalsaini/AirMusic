@@ -59,6 +59,20 @@ function App() {
     };
   };
 
+  const stopApp = () => {
+    setIsReady(false);
+    if (videoRef.current && videoRef.current.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      videoRef.current.srcObject = null;
+    }
+    if (synthRef.current) {
+      synthRef.current.releaseAll();
+    }
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+  };
+
   let lastVideoTime = -1;
   let lastFingersUp = 0;
   let lastPinchesStr = "";
@@ -144,6 +158,8 @@ function App() {
         }
       }
 
+      ctx.restore(); // Restore orientation so text isn't mirrored!
+
       // Draw Finger Labels
       if (rightHand && NOTE_BANKS[currentBank]) {
         ctx.font = "16px monospace";
@@ -154,7 +170,9 @@ function App() {
             if (NOTE_BANKS[currentBank][finger]) {
                 const noteStr = NOTE_BANKS[currentBank][finger].join('+');
                 const point = rightHand[tipIdx];
-                const x = point.x * canvas.width + 15;
+                
+                // Manually flip X since canvas is no longer mirrored
+                const x = canvas.width - (point.x * canvas.width) + 15;
                 const y = point.y * canvas.height - 15;
                 
                 // Text background
@@ -168,8 +186,6 @@ function App() {
             }
         }
       }
-
-      ctx.restore();
       
       // Update UI state efficiently
       const currentPinches = Object.keys(detectorRef.current.activePinches).filter(k => detectorRef.current.activePinches[k]);
@@ -201,7 +217,10 @@ function App() {
       ) : (
         <div className="ui-overlay">
           <div className="glass-panel">
-            <h2>AirPiano</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <h2>AirPiano</h2>
+              <button onClick={stopApp} style={{ background: 'rgba(255,0,0,0.5)', border: 'none', color: 'white', padding: '5px 10px', borderRadius: '5px', cursor: 'pointer' }}>Quit</button>
+            </div>
             <div className="stats">
               <p>Active Bank: <span>{activeBank}</span> ({fingersUp} fingers)</p>
               <p>Pinches: <span>{activePinches.join(', ') || 'None'}</span></p>
