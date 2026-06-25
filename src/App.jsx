@@ -60,6 +60,9 @@ function App() {
   };
 
   let lastVideoTime = -1;
+  let lastFingersUp = 0;
+  let lastPinchesStr = "";
+  let lastNotesStr = "";
   
   const predictWebcam = () => {
     const video = videoRef.current;
@@ -112,7 +115,10 @@ function App() {
       if (leftHand) {
         const count = detectorRef.current.countFingers(leftHand);
         if (count > 0) {
-          setFingersUp(count);
+          if (count !== lastFingersUp) {
+            setFingersUp(count);
+            lastFingersUp = count;
+          }
           if (count !== currentBank) {
             synthRef.current.releaseAll();
             currentBank = count;
@@ -165,10 +171,20 @@ function App() {
 
       ctx.restore();
       
-      // Update UI state
+      // Update UI state efficiently
       const currentPinches = Object.keys(detectorRef.current.activePinches).filter(k => detectorRef.current.activePinches[k]);
-      setActivePinches(currentPinches);
-      setActiveNotes(Array.from(synthRef.current.activeNotes));
+      const currentPinchesStr = currentPinches.join(',');
+      if (currentPinchesStr !== lastPinchesStr) {
+          setActivePinches(currentPinches);
+          lastPinchesStr = currentPinchesStr;
+      }
+
+      const currentNotes = Array.from(synthRef.current.activeNotes);
+      const currentNotesStr = currentNotes.join(',');
+      if (currentNotesStr !== lastNotesStr) {
+          setActiveNotes(currentNotes);
+          lastNotesStr = currentNotesStr;
+      }
     }
 
     animationRef.current = requestAnimationFrame(predictWebcam);
