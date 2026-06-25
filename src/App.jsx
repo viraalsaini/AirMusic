@@ -14,11 +14,18 @@ function App() {
   const [fingersUp, setFingersUp] = useState(0);
   const [activePinches, setActivePinches] = useState([]);
   const [activeNotes, setActiveNotes] = useState([]);
+  const [debugError, setDebugError] = useState(null);
   
   const synthRef = useRef(null);
   const detectorRef = useRef(null);
   const landmarkerRef = useRef(null);
   const animationRef = useRef(null);
+  
+  // Refs to avoid stale closures in requestAnimationFrame
+  const activeBankRef = useRef(1);
+  const lastFingersUpRef = useRef(0);
+  const lastPinchesStrRef = useRef("");
+  const lastNotesStrRef = useRef("");
 
   useEffect(() => {
     // Initialize AI and Audio engines when user clicks Start
@@ -74,9 +81,6 @@ function App() {
   };
 
   let lastVideoTime = -1;
-  let lastFingersUp = 0;
-  let lastPinchesStr = "";
-  let lastNotesStr = "";
   
   const predictWebcam = () => {
     const video = videoRef.current;
@@ -85,123 +89,129 @@ function App() {
 
     const ctx = canvas.getContext('2d');
     
-    // Ensure canvas matches video dimensions
-    if (canvas.width !== video.videoWidth) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-    }
-
-    if (video.currentTime !== lastVideoTime) {
-      lastVideoTime = video.currentTime;
-      
-      const results = landmarkerRef.current.detectForVideo(video, performance.now());
-      
-      ctx.save();
-      // Mirror canvas to match selfie view
-      ctx.scale(-1, 1);
-      ctx.translate(-canvas.width, 0);
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      
-      let leftHand = null;
-      let rightHand = null;
-
-      if (results.landmarks) {
-        for (let i = 0; i < results.landmarks.length; i++) {
-          const landmarks = results.landmarks[i];
-          const handedness = results.handednesses[i][0].categoryName;
-          
-          // Draw minimal landmarks (dots only)
-          ctx.fillStyle = "rgb(255, 180, 50)"; // Bluish
-          for (const point of landmarks) {
-            ctx.beginPath();
-            ctx.arc(point.x * canvas.width, point.y * canvas.height, 4, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-
-          // Due to mirror, physical Right is seen as Left by MediaPipe
-          if (handedness === 'Left') rightHand = landmarks;
-          if (handedness === 'Right') leftHand = landmarks;
-        }
+    try {
+      // Ensure canvas matches video dimensions
+      if (canvas.width !== video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
       }
 
-      // Logic Updates
-      let currentBank = activeBank;
-      if (leftHand) {
-        const count = detectorRef.current.countFingers(leftHand);
-        if (count > 0) {
-          if (count !== lastFingersUp) {
-            setFingersUp(count);
-            lastFingersUp = count;
-          }
-          if (count !== currentBank) {
-            synthRef.current.releaseAll();
-            currentBank = count;
-            setActiveBank(count);
-            setActiveNotes([]);
-            setActivePinches([]);
-          }
-        }
-      }
-
-      // Always pass right hand (even if null) to trigger release events
-      const { newPinches, releasedPinches } = detectorRef.current.detectPinches(rightHand);
-      
-      // Handle Audio
-      for (const finger of newPinches) {
-        if (NOTE_BANKS[currentBank][finger]) {
-          synthRef.current.playNotes(NOTE_BANKS[currentBank][finger]);
-        }
-      }
-      for (const finger of releasedPinches) {
-        if (NOTE_BANKS[currentBank][finger]) {
-          synthRef.current.releaseNotes(NOTE_BANKS[currentBank][finger]);
-        }
-      }
-
-      ctx.restore(); // Restore orientation so text isn't mirrored!
-
-      // Draw Finger Labels
-      if (rightHand && NOTE_BANKS[currentBank]) {
-        ctx.font = "16px monospace";
-        ctx.fillStyle = "white";
-        ctx.textAlign = "left";
+      if (video.currentTime !== lastVideoTime) {
+        lastVideoTime = video.currentTime;
         
-        for (const [finger, tipIdx] of Object.entries(detectorRef.current.fingerTips)) {
-            if (NOTE_BANKS[currentBank][finger]) {
-                const notesArr = NOTE_BANKS[currentBank][finger];
-                const noteStr = notesArr.map(n => noteName(n)).join('+');
-                const point = rightHand[tipIdx];
-                
-                // Manually flip X since canvas is no longer mirrored
-                const x = canvas.width - (point.x * canvas.width) + 15;
-                const y = point.y * canvas.height - 15;
-                
-                // Text background
-                const textWidth = ctx.measureText(noteStr).width;
-                ctx.fillStyle = "rgba(0,0,0,0.5)";
-                ctx.fillRect(x - 4, y - 16, textWidth + 8, 22);
-                
-                // Text
-                ctx.fillStyle = "white";
-                ctx.fillText(noteStr, x, y);
+        const results = landmarkerRef.current.detectForVideo(video, performance.now());
+        
+        ctx.save();
+        // Mirror canvas to match selfie view
+        ctx.scale(-1, 1);
+        ctx.translate(-canvas.width, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        let leftHand = null;
+        let rightHand = null;
+
+        if (results.landmarks) {
+          for (let i = 0; i < results.landmarks.length; i++) {
+            const landmarks = results.landmarks[i];
+            const handedness = results.handednesses[i][0].categoryName;
+            
+            // Draw minimal landmarks (dots only)
+            ctx.fillStyle = "rgb(255, 180, 50)"; // Bluish
+            for (const point of landmarks) {
+              ctx.beginPath();
+              ctx.arc(point.x * canvas.width, point.y * canvas.height, 4, 0, 2 * Math.PI);
+              ctx.fill();
             }
+
+            // Due to mirror, physical Right is seen as Left by MediaPipe
+            if (handedness === 'Left') rightHand = landmarks;
+            if (handedness === 'Right') leftHand = landmarks;
+          }
+        }
+
+        // Logic Updates
+        let currentBank = activeBankRef.current;
+        if (leftHand) {
+          const count = detectorRef.current.countFingers(leftHand);
+          if (count > 0) {
+            if (count !== lastFingersUpRef.current) {
+              setFingersUp(count);
+              lastFingersUpRef.current = count;
+            }
+            if (count !== currentBank) {
+              synthRef.current.releaseAll();
+              activeBankRef.current = count;
+              currentBank = count;
+              setActiveBank(count);
+              setActiveNotes([]);
+              setActivePinches([]);
+            }
+          }
+        }
+
+        // Always pass right hand (even if null) to trigger release events
+        const { newPinches, releasedPinches } = detectorRef.current.detectPinches(rightHand);
+        
+        // Handle Audio
+        for (const finger of newPinches) {
+          if (NOTE_BANKS[currentBank] && NOTE_BANKS[currentBank][finger]) {
+            synthRef.current.playNotes(NOTE_BANKS[currentBank][finger]);
+          }
+        }
+        for (const finger of releasedPinches) {
+          if (NOTE_BANKS[currentBank] && NOTE_BANKS[currentBank][finger]) {
+            synthRef.current.releaseNotes(NOTE_BANKS[currentBank][finger]);
+          }
+        }
+
+        ctx.restore(); // Restore orientation so text isn't mirrored!
+
+        // Draw Finger Labels
+        if (rightHand && NOTE_BANKS[currentBank]) {
+          ctx.font = "16px monospace";
+          ctx.fillStyle = "white";
+          ctx.textAlign = "left";
+          
+          for (const [finger, tipIdx] of Object.entries(detectorRef.current.fingerTips)) {
+              if (NOTE_BANKS[currentBank][finger]) {
+                  const notesArr = NOTE_BANKS[currentBank][finger];
+                  const noteStr = notesArr.map(n => noteName(n)).join('+');
+                  const point = rightHand[tipIdx];
+                  
+                  // Manually flip X since canvas is no longer mirrored
+                  const x = canvas.width - (point.x * canvas.width) + 15;
+                  const y = point.y * canvas.height - 15;
+                  
+                  // Text background
+                  const textWidth = ctx.measureText(noteStr).width;
+                  ctx.fillStyle = "rgba(0,0,0,0.5)";
+                  ctx.fillRect(x - 4, y - 16, textWidth + 8, 22);
+                  
+                  // Text
+                  ctx.fillStyle = "white";
+                  ctx.fillText(noteStr, x, y);
+              }
+          }
+        }
+        
+        // Update UI state efficiently
+        const currentPinches = Object.keys(detectorRef.current.activePinches).filter(k => detectorRef.current.activePinches[k]);
+        const currentPinchesStr = currentPinches.join(',');
+        if (currentPinchesStr !== lastPinchesStrRef.current) {
+            setActivePinches(currentPinches);
+            lastPinchesStrRef.current = currentPinchesStr;
+        }
+
+        const currentNotes = Array.from(synthRef.current.activeNotes);
+        const currentNotesStr = currentNotes.join(',');
+        if (currentNotesStr !== lastNotesStrRef.current) {
+            setActiveNotes(currentNotes);
+            lastNotesStrRef.current = currentNotesStr;
         }
       }
-      
-      // Update UI state efficiently
-      const currentPinches = Object.keys(detectorRef.current.activePinches).filter(k => detectorRef.current.activePinches[k]);
-      const currentPinchesStr = currentPinches.join(',');
-      if (currentPinchesStr !== lastPinchesStr) {
-          setActivePinches(currentPinches);
-          lastPinchesStr = currentPinchesStr;
-      }
-
-      const currentNotes = Array.from(synthRef.current.activeNotes);
-      const currentNotesStr = currentNotes.join(',');
-      if (currentNotesStr !== lastNotesStr) {
-          setActiveNotes(currentNotes);
-          lastNotesStr = currentNotesStr;
-      }
+    } catch (e) {
+      setDebugError(e.message);
+      console.error(e);
     }
 
     animationRef.current = requestAnimationFrame(predictWebcam);
@@ -226,6 +236,7 @@ function App() {
               <p>Active Bank: <span>{activeBank}</span> ({fingersUp} fingers)</p>
               <p>Pinches: <span>{activePinches.join(', ') || 'None'}</span></p>
               <p>Playing: <span className="notes">{activeNotes.map(n => noteName(n)).join(' ') || 'None'}</span></p>
+              {debugError && <p style={{ color: 'red', marginTop: '10px' }}>ERROR: {debugError}</p>}
             </div>
           </div>
         </div>
