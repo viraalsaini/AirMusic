@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import PianoSynth from './audio/PianoSynth';
 import GestureDetector from './gestures/GestureDetector';
-import { NOTE_BANKS } from './config/settings';
+import { NOTE_BANKS, noteName } from './config/settings';
 import './index.css';
 
 function App() {
@@ -168,7 +168,8 @@ function App() {
         
         for (const [finger, tipIdx] of Object.entries(detectorRef.current.fingerTips)) {
             if (NOTE_BANKS[currentBank][finger]) {
-                const noteStr = NOTE_BANKS[currentBank][finger].join('+');
+                const notesArr = NOTE_BANKS[currentBank][finger];
+                const noteStr = notesArr.map(n => noteName(n)).join('+');
                 const point = rightHand[tipIdx];
                 
                 // Manually flip X since canvas is no longer mirrored
@@ -224,7 +225,7 @@ function App() {
             <div className="stats">
               <p>Active Bank: <span>{activeBank}</span> ({fingersUp} fingers)</p>
               <p>Pinches: <span>{activePinches.join(', ') || 'None'}</span></p>
-              <p>Playing: <span className="notes">{activeNotes.join(' ') || 'None'}</span></p>
+              <p>Playing: <span className="notes">{activeNotes.map(n => noteName(n)).join(' ') || 'None'}</span></p>
             </div>
           </div>
         </div>
